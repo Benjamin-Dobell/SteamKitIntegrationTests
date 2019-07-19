@@ -1,6 +1,9 @@
 .idea/
+
+.DS_Store
+.env
+
 bin/
 obj/
 
-.DS_Store
-
+/SteamKit2
