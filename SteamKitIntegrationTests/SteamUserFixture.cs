@@ -1,11 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Linq.Expressions;
-using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using SteamKit2;
+using SteamKit2.Internal;
 using Xunit;
 
 namespace SteamKitIntegrationTests
@@ -22,14 +20,17 @@ namespace SteamKitIntegrationTests
 			Disconnected,
 		}
 
-		private readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
-		private readonly TimeSpan LogonTimeout = TimeSpan.FromSeconds(5);
-		private readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(10);
+		private readonly TimeSpan connectTimeout = TimeSpan.FromSeconds(5);
+		private readonly TimeSpan logonTimeout = TimeSpan.FromSeconds(10);
+		private readonly TimeSpan disconnectTimeout = TimeSpan.FromSeconds(10);
 
 		public SteamClient Client { get; } = new SteamClient();
-		public SteamUser User { get; }
+
+		public SteamFriends Friends { get; }
 		public SteamMatchmaking Matchmaking { get; }
-		public CallbackManager CallbackManager { get; }
+
+		private SteamUser User { get; }
+		private CallbackManager CallbackManager { get; }
 
 		private State state;
 
@@ -39,57 +40,74 @@ namespace SteamKitIntegrationTests
 		{
 			this.logOnDetails = logOnDetails;
 
-			User = Client.GetHandler<SteamUser>();
+			Friends = Client.GetHandler<SteamFriends>();
 			Matchmaking = Client.GetHandler<SteamMatchmaking>();
+			User = Client.GetHandler<SteamUser>();
 
 			CallbackManager = new CallbackManager(Client);
 
-			CallbackManager.Subscribe<SteamClient.ConnectedCallback>(OnConnected);
-			CallbackManager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnected);
-
-			CallbackManager.Subscribe<SteamUser.LoggedOnCallback>(OnLoggedOn);
 			CallbackManager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
+			CallbackManager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnected);
 		}
 
 		public Task InitializeAsync()
 		{
 			return Task.Run(() => {
-				DateTime connectionCommencement = DateTime.Now;
-
 				Client.Connect();
 
-				while (state != State.Connected)
-				{
-					TimeSpan elapsedTime = DateTime.Now.Subtract(connectionCommencement);
-
-					if (elapsedTime.CompareTo(ConnectTimeout) >= 0)
-					{
-						throw new TimeoutException("Timed out connecting to Steam");
-					}
-
-					CallbackManager.RunWaitAllCallbacks(ConnectTimeout.Subtract(elapsedTime));
-				}
-
-				DateTime logonCommencement = DateTime.Now;
+				WaitForCallback(new[] { State.Connecting }, connectTimeout, (SteamClient.ConnectedCallback c) => { state = State.Connected; });
 
 				User.LogOn(logOnDetails);
 
-				while (state == State.Connected)
-				{
-					TimeSpan elapsedTime = DateTime.Now.Subtract(logonCommencement);
-
-					if (elapsedTime.CompareTo(LogonTimeout) >= 0)
+				var loggedOnCallback = new Action<SteamUser.LoggedOnCallback>((SteamUser.LoggedOnCallback c) => {
+					if (c.Result == EResult.OK)
 					{
-						throw new TimeoutException("Timed out logging into Steam");
+						Console.WriteLine($"{logOnDetails.Username} logged on");
+						state = State.LoggedOn;
 					}
+					else
+					{
+						Console.Error.WriteLine($"{logOnDetails.Username} failed with result: {c.Result}");
+						throw new Exception($"{logOnDetails.Username} failed with result: {c.Result}");
+					}
+				});
 
-					CallbackManager.RunWaitAllCallbacks(LogonTimeout.Subtract(elapsedTime));
-				}
-
-				if (state != State.LoggedOn)
+				if (logOnDetails.Password != null)
 				{
-					throw new Exception($"Failed to login to Steam account: ${logOnDetails.Username}");
+					WaitForCallbacks(
+						new[] { State.Connected, State.LoggedOn },
+						logonTimeout,
+						loggedOnCallback,
+						(SteamUser.LoginKeyCallback c) => {
+							Console.WriteLine($"{Friends.GetPersonaName()} login key: {c.LoginKey}");
+						}
+					);
 				}
+				else
+				{
+					WaitForCallback(
+						new[] { State.Connected },
+						logonTimeout,
+						loggedOnCallback
+					);
+				}
+
+				var appUsageEvent = new ClientMsg<MsgClientAppUsageEvent>() {
+					Body = {
+						AppUsageEvent = EAppUsageEvent.GameLaunch,
+						GameID = Config.AppId,
+					}
+				};
+
+				Client.Send(appUsageEvent);
+
+				var gamesPlayed = new ClientMsgProtobuf<CMsgClientGamesPlayed>(EMsg.ClientGamesPlayed);
+				gamesPlayed.Body.games_played.Add(new CMsgClientGamesPlayed.GamePlayed {
+					game_id = new GameID(Config.AppId),
+				});
+				Client.Send(gamesPlayed);
+
+				Friends.SetPersonaState(EPersonaState.Online);
 			});
 		}
 
@@ -118,35 +136,49 @@ namespace SteamKitIntegrationTests
 				{
 					TimeSpan elapsedTime = DateTime.Now.Subtract(disconnectCommencement);
 
-					if (elapsedTime.CompareTo(DisconnectTimeout) >= 0)
+					if (elapsedTime.CompareTo(disconnectTimeout) >= 0)
 					{
 						throw new TimeoutException("Timed out disconnecting from Steam");
 					}
 
-					CallbackManager.RunWaitAllCallbacks(DisconnectTimeout.Subtract(elapsedTime));
+					CallbackManager.RunWaitAllCallbacks(disconnectTimeout.Subtract(elapsedTime));
 				}
 			});
 		}
 
-		public void WaitForCallback<TSuccess>(TimeSpan timeout, Action<TSuccess> success)
-			where TSuccess : class, ICallbackMsg
+
+		public void WaitForCallback<TCallback>(TimeSpan timeout, Action<TCallback> action)
+			where TCallback : class, ICallbackMsg
+		{
+			WaitForCallback(new[] { State.LoggedOn }, timeout, action);
+		}
+
+		public void WaitForCallbacks<TCallback1, TCallback2>(TimeSpan timeout, Action<TCallback1> action1, Action<TCallback2> action2)
+			where TCallback1 : class, ICallbackMsg
+			where TCallback2 : class, ICallbackMsg
+		{
+			WaitForCallbacks(new[] { State.LoggedOn }, timeout, action1, action2);
+		}
+
+		private void WaitForCallback<TCallback>(State[] expectedStates, TimeSpan timeout, Action<TCallback> action)
+			where TCallback : class, ICallbackMsg
 		{
 			bool finished = false;
 
-			var successSubscription = CallbackManager.Subscribe((TSuccess s) => {
+			var callbackSubscription = CallbackManager.Subscribe((TCallback c) => {
 				finished = true;
-				success(s);
+				action(c);
 			});
 
 			try
 			{
 				DateTime commencement = DateTime.Now;
 
-				var callbackType = success.Method.GetParameters().Select(pi => pi.ParameterType).First();
+				var callbackType = action.Method.GetParameters().Select(pi => pi.ParameterType).First();
 
 				while (!finished)
 				{
-					if (state != State.LoggedOn)
+					if (!expectedStates.Contains(state))
 					{
 						throw new Exception($"Steam {state} whilst waiting for {callbackType} callback");
 					}
@@ -163,35 +195,36 @@ namespace SteamKitIntegrationTests
 			}
 			finally
 			{
-				successSubscription.Dispose();
+				callbackSubscription.Dispose();
 			}
 		}
 
-		public void WaitForCallback<TSuccess, TFailure>(TimeSpan timeout, Action<TSuccess> success, Action<TFailure> failure)
-			where TSuccess : class, ICallbackMsg
-			where TFailure : class, ICallbackMsg
+		private void WaitForCallbacks<TCallback1, TCallback2>(State[] expectedStates, TimeSpan timeout, Action<TCallback1> action1, Action<TCallback2> action2)
+			where TCallback1 : class, ICallbackMsg
+			where TCallback2 : class, ICallbackMsg
 		{
-			bool finished = false;
+			bool finished1 = false;
+			bool finished2 = false;
 
-			var successSubscription = CallbackManager.Subscribe((TSuccess s) => {
-				finished = true;
-				success(s);
+			var callback1Subscription = CallbackManager.Subscribe((TCallback1 c) => {
+				finished1 = true;
+				action1(c);
 			});
 
-			var failureSubscription = CallbackManager.Subscribe((TFailure f) => {
-				finished = true;
-				failure(f);
+			var callback2Subscription = CallbackManager.Subscribe((TCallback2 c) => {
+				finished2 = true;
+				action2(c);
 			});
 
 			try
 			{
 				DateTime commencement = DateTime.Now;
 
-				var callbackType = success.Method.GetParameters().Select(pi => pi.ParameterType).First();
+				var callbackType = action1.Method.GetParameters().Select(pi => pi.ParameterType).First();
 
-				while (!finished)
+				while (!finished1 || !finished2)
 				{
-					if (state != State.LoggedOn)
+					if (!expectedStates.Contains(state))
 					{
 						throw new Exception($"Steam disconnected whilst waiting for {callbackType} callback");
 					}
@@ -208,19 +241,9 @@ namespace SteamKitIntegrationTests
 			}
 			finally
 			{
-				successSubscription.Dispose();
-				failureSubscription.Dispose();
+				callback1Subscription.Dispose();
+				callback2Subscription.Dispose();
 			}
-		}
-
-		private void OnConnected(SteamClient.ConnectedCallback connectedCallback)
-		{
-			state = State.Connected;
-		}
-
-		private void OnLoggedOn(SteamUser.LoggedOnCallback callback)
-		{
-			state = State.LoggedOn;
 		}
 
 		private void OnLoggedOff(SteamUser.LoggedOffCallback callback)
@@ -240,12 +263,15 @@ namespace SteamKitIntegrationTests
 				var s = Path.DirectorySeparatorChar;
 				DotNetEnv.Env.Load($"..{s}..{s}..{s}.env");
 			}
-			catch (Exception e)
+			catch (Exception)
 			{
 				// '.env' files are only used during development, and they're optional.
 			}
 
-			var logOnDetails = new SteamUser.LogOnDetails { Username = Environment.GetEnvironmentVariable($"{userPrefix}_STEAM_USER") };
+			var logOnDetails = new SteamUser.LogOnDetails {
+				Username = Environment.GetEnvironmentVariable($"{userPrefix}_STEAM_USER"),
+				ShouldRememberPassword = true,
+			};
 
 			if (logOnDetails.Username == null)
 			{
@@ -262,6 +288,8 @@ namespace SteamKitIntegrationTests
 				{
 					throw new Exception($"Either the {userPrefix}_STEAM_KEY or {userPrefix}_STEAM_PASSWORD environment variable must be specified");
 				}
+
+				logOnDetails.TwoFactorCode = Environment.GetEnvironmentVariable($"{userPrefix}_STEAM_GUARD_CODE");
 			}
 
 			return logOnDetails;
