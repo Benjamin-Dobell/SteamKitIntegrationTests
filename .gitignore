@@ -1,9 +1,13 @@
 .idea/
+*.sln.DotSettings.user
 
 .DS_Store
+
 .env
+.env.*
 
 bin/
 obj/
 
-/SteamKit2
+/SteamKit
+
