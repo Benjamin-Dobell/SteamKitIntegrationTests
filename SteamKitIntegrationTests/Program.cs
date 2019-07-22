@@ -158,6 +158,8 @@ namespace SteamKitIntegrationTests
 		[OrderedFact]
 		private void CanRetrieveCreatedLobbyFromLobbyList()
 		{
+			Thread.Sleep(750); // Give Steam a bit of time publicly list our lobby
+
 			Primary.Matchmaking.GetLobbyList(Config.AppId, new List<SteamMatchmaking.Lobby.Filter>() {
 				new SteamMatchmaking.Lobby.StringFilter("meta", ELobbyFilterComparison.Equal, "456") // TODO: Something is wrong with this filter
 			}, 1);
@@ -213,6 +215,8 @@ namespace SteamKitIntegrationTests
 		[OrderedFact]
 		private void CanListOtherUserLobbies()
 		{
+			Thread.Sleep(750); // Give Steam a bit of time publicly list our lobby
+
 			Secondary.Matchmaking.GetLobbyList(Config.AppId, new List<SteamMatchmaking.Lobby.Filter>() {
 				new SteamMatchmaking.Lobby.NumericalFilter("lookup", ELobbyFilterComparison.Equal, LookupIdentifier),
 			}, 1);
