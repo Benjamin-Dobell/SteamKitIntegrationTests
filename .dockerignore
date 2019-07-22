@@ -1,0 +1,10 @@
+**/.git/
+**/.idea/
+
+**/.DS_Store
+
+dockerfiles/
+SteamKit/
+
+**/bin/
+**/obj/
