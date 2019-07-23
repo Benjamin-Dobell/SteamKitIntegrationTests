@@ -68,32 +68,29 @@ namespace SteamKitIntegrationTests
 		[OrderedFact]
 		private void CanSetLobbyData()
 		{
-			Primary.Matchmaking.SetLobbyData(Config.AppId, LobbyId, ELobbyType.Invisible, 0, 5, new Dictionary<string, string> {
+			Primary.Matchmaking.SetLobbyData(Config.AppId, LobbyId, ELobbyType.Invisible, 5, 0, new Dictionary<string, string> {
 				{ "meta", "123" },
 			});
 
-			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.SetLobbyDataCallback c) => {
-				Assert.Equal(EResult.OK, c.Result);
-				Assert.Equal(Config.AppId, c.AppID);
-				Assert.Equal(LobbyId, c.LobbySteamID);
-			});
-		}
-
-		[OrderedFact]
-		private void CanReceiveLobbyData()
-		{
-			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.LobbyDataCallback c) => {
-				var lobby = c.Lobby;
-				Assert.Equal(Config.AppId, c.AppID);
-				Assert.NotNull(lobby);
-				Assert.Equal(LobbyId, lobby.SteamID);
-				Assert.Equal(Primary.Client.SteamID, lobby.OwnerSteamID);
-				Assert.Equal(ELobbyType.Invisible, lobby.LobbyType);
-				Assert.Equal(5, lobby.MaxMembers);
-				Assert.Equal(1, lobby.NumMembers);
-				Assert.Equal(0, lobby.Members.Count);
-				Assert.Equal("123", lobby.Metadata["meta"]);
-			});
+			Primary.WaitForCallbacks(
+				Config.DefaultHandlerTimeout,
+				(SteamMatchmaking.SetLobbyDataCallback c) => {
+					Assert.Equal(EResult.OK, c.Result);
+					Assert.Equal(Config.AppId, c.AppID);
+					Assert.Equal(LobbyId, c.LobbySteamID);
+				},
+				(SteamMatchmaking.LobbyDataCallback c) => {
+					var lobby = c.Lobby;
+					Assert.Equal(Config.AppId, c.AppID);
+					Assert.NotNull(lobby);
+					Assert.Equal(LobbyId, lobby.SteamID);
+					Assert.Equal(Primary.Client.SteamID, lobby.OwnerSteamID);
+					Assert.Equal(ELobbyType.Invisible, lobby.LobbyType);
+					Assert.Equal(5, lobby.MaxMembers);
+					Assert.Equal(1, lobby.NumMembers);
+					Assert.Equal(1, lobby.Members.Count);
+					Assert.Equal("123", lobby.Metadata["meta"]);
+				});
 		}
 
 		[OrderedFact]
@@ -106,14 +103,14 @@ namespace SteamKitIntegrationTests
 			Assert.Equal(ELobbyType.Invisible, cachedLobby.LobbyType);
 			Assert.Equal(5, cachedLobby.MaxMembers);
 			Assert.Equal(1, cachedLobby.NumMembers);
-			Assert.Equal(0, cachedLobby.Members.Count);
+			Assert.Equal(1, cachedLobby.Members.Count);
 			Assert.Equal("123", cachedLobby.Metadata["meta"]);
 		}
 
 		[OrderedFact]
 		private void CanReceiveLobbyDataUpdates()
 		{
-			Primary.Matchmaking.SetLobbyData(Config.AppId, LobbyId, ELobbyType.Public, 0, 10, new Dictionary<string, string> {
+			Primary.Matchmaking.SetLobbyData(Config.AppId, LobbyId, ELobbyType.Public, 10, 0, new Dictionary<string, string> {
 				{ "meta", "456" },
 			});
 
@@ -135,7 +132,7 @@ namespace SteamKitIntegrationTests
 					Assert.Equal(ELobbyType.Public, lobby.LobbyType);
 					Assert.Equal(10, lobby.MaxMembers);
 					Assert.Equal(1, lobby.NumMembers);
-					Assert.Equal(0, lobby.Members.Count);
+					Assert.Equal(1, lobby.Members.Count);
 					Assert.Equal("456", lobby.Metadata["meta"]);
 				}
 			);
@@ -151,7 +148,7 @@ namespace SteamKitIntegrationTests
 			Assert.Equal(ELobbyType.Public, cachedLobby.LobbyType);
 			Assert.Equal(10, cachedLobby.MaxMembers);
 			Assert.Equal(1, cachedLobby.NumMembers);
-			Assert.Equal(0, cachedLobby.Members.Count);
+			Assert.Equal(1, cachedLobby.Members.Count);
 			Assert.Equal("456", cachedLobby.Metadata["meta"]);
 		}
 
@@ -161,7 +158,7 @@ namespace SteamKitIntegrationTests
 			Thread.Sleep(750); // Give Steam a bit of time publicly list our lobby
 
 			Primary.Matchmaking.GetLobbyList(Config.AppId, new List<SteamMatchmaking.Lobby.Filter>() {
-				new SteamMatchmaking.Lobby.StringFilter("meta", ELobbyFilterComparison.Equal, "456") // TODO: Something is wrong with this filter
+				new SteamMatchmaking.Lobby.StringFilter("meta", ELobbyFilterComparison.Equal, "456")
 			}, 1);
 
 			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.GetLobbyListCallback c) => {
@@ -176,7 +173,7 @@ namespace SteamKitIntegrationTests
 				Assert.Equal(ELobbyType.Public, lobby.LobbyType);
 				Assert.Equal(10, lobby.MaxMembers);
 				Assert.Equal(1, lobby.NumMembers);
-				Assert.Equal(0, lobby.Members.Count);
+				Assert.Equal(1, lobby.Members.Count); // We're still in the lobby, so we expect member details.
 				Assert.Equal("456", lobby.Metadata["meta"]);
 				Assert.Equal(0, lobby.Weight);
 				Assert.Equal(0, lobby.Distance);
@@ -190,26 +187,32 @@ namespace SteamKitIntegrationTests
 		[OrderedFact]
 		private void CanCreatePublicLobby()
 		{
-			Primary.Matchmaking.CreateLobby(Config.AppId, ELobbyType.Public, 10);
-
-			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.CreateLobbyCallback c) => {
-				Assert.Equal(EResult.OK, c.Result);
-				LobbyId = c.LobbySteamID;
-			});
-
 			LookupIdentifier = new Random().Next();
 
-			Primary.Matchmaking.SetLobbyData(Config.AppId, LobbyId, ELobbyType.Public, 0, 10, new Dictionary<string, string> {
+			Primary.Matchmaking.CreateLobby(Config.AppId, ELobbyType.Public, 10, 0, new Dictionary<string, string> {
 				{ "lookup", LookupIdentifier.ToString() },
 			});
 
-			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.LobbyDataCallback c) => {
-				var lobby = c.Lobby;
-				Assert.Equal(Config.AppId, c.AppID);
-				Assert.NotNull(lobby);
-				Assert.Equal(LobbyId, lobby.SteamID);
-				Assert.NotNull(lobby);
-			});
+			Primary.WaitForCallback(
+				Config.DefaultHandlerTimeout,
+				(SteamMatchmaking.CreateLobbyCallback c) => {
+					Assert.Equal(EResult.OK, c.Result);
+					LobbyId = c.LobbySteamID;
+				}
+			);
+		}
+
+		[OrderedFact]
+		private void CanRetrieveCachedLobbyImmediatelyAfterCreation()
+		{
+			var lobby = Primary.Matchmaking.GetLobby(Config.AppId, LobbyId);
+			Assert.Equal(Primary.Client.SteamID, lobby.OwnerSteamID);
+			Assert.Equal(ELobbyType.Public, lobby.LobbyType);
+			Assert.Equal(10, lobby.MaxMembers);
+			Assert.Equal(0, lobby.LobbyFlags);
+			Assert.Equal(LookupIdentifier.ToString(), lobby.Metadata["lookup"]);
+			Assert.Equal(1, lobby.Members.Count);
+			Assert.Equal(Primary.Client.SteamID, lobby.Members[0].SteamID);
 		}
 
 		[OrderedFact]
