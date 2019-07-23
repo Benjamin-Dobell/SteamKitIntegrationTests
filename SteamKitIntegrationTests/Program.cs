@@ -282,6 +282,15 @@ namespace SteamKitIntegrationTests
 				Assert.Equal(Config.AppId, c.AppID);
 				Assert.Equal(LobbyId, c.LobbySteamID);
 			});
+
+			Secondary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.LobbyDataCallback c) => {
+				var lobby = c.Lobby;
+				Assert.Equal(Config.AppId, c.AppID);
+				Assert.Equal(LobbyId, lobby.SteamID);
+
+				var user = lobby.Members.First(member => member.SteamID == Secondary.Client.SteamID);
+				Assert.Equal("data", user.Metadata["meta"]);
+			});
 		}
 
 		[OrderedFact]
@@ -294,17 +303,47 @@ namespace SteamKitIntegrationTests
 				Assert.Equal(2, lobby.NumMembers);
 				Assert.Equal(2, lobby.Members.Count);
 
-				var user = lobby.Members.First((SteamMatchmaking.Lobby.Member member) => member.SteamID == Secondary.Client.SteamID);
+				var user = lobby.Members.First(member => member.SteamID == Secondary.Client.SteamID);
 				Assert.Equal("data", user.Metadata["meta"]);
+			});
+		}
+
+		[OrderedFact]
+		private void CanSetLobbyOwner()
+		{
+			Primary.Matchmaking.SetLobbyOwner(Config.AppId, LobbyId, Secondary.Client.SteamID);
+
+			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.SetLobbyOwnerCallback c) => {
+				Assert.Equal(EResult.OK, c.Result);
+				Assert.Equal(Config.AppId, c.AppID);
+				Assert.Equal(LobbyId, c.LobbySteamID);
+			});
+		}
+
+		[OrderedFact]
+		private void CanTellWhenLobbyOwnershipChanges()
+		{
+			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.LobbyDataCallback c) => {
+				var lobby = c.Lobby;
+				Assert.Equal(Config.AppId, c.AppID);
+				Assert.Equal(LobbyId, lobby.SteamID);
+				Assert.Equal(Secondary.Client.SteamID, lobby.OwnerSteamID);
+			});
+
+			Secondary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.LobbyDataCallback c) => {
+				var lobby = c.Lobby;
+				Assert.Equal(Config.AppId, c.AppID);
+				Assert.Equal(LobbyId, lobby.SteamID);
+				Assert.Equal(Secondary.Client.SteamID, lobby.OwnerSteamID);
 			});
 		}
 
 		[OrderedFact]
 		private void CanLeaveLobby()
 		{
-			Secondary.Matchmaking.LeaveLobby(Config.AppId, LobbyId);
+			Primary.Matchmaking.LeaveLobby(Config.AppId, LobbyId);
 
-			Secondary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.LeaveLobbyCallback c) => {
+			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.LeaveLobbyCallback c) => {
 				Assert.Equal(EResult.OK, c.Result);
 				Assert.Equal(Config.AppId, c.AppID);
 				Assert.Equal(LobbyId, c.LobbySteamID);
@@ -314,13 +353,13 @@ namespace SteamKitIntegrationTests
 		[OrderedFact]
 		private void CanSeeOtherUserLeftLobby()
 		{
-			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.UserLeftLobbyCallback c) => {
+			Secondary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.UserLeftLobbyCallback c) => {
 				var user = c.User;
 
 				Assert.Equal(Config.AppId, c.AppID);
 				Assert.Equal(LobbyId, c.LobbySteamID);
 				Assert.NotNull(user);
-				Assert.Equal(Secondary.Client.SteamID, user.SteamID);
+				Assert.Equal(Primary.Client.SteamID, user.SteamID);
 			});
 		}
 
