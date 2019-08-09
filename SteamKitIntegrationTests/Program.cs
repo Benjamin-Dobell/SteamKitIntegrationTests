@@ -153,7 +153,7 @@ namespace SteamKitIntegrationTests
 			Thread.Sleep(750); // Give Steam a bit of time publicly list our lobby
 
 			Primary.Matchmaking.GetLobbyList(Config.AppId, new List<SteamMatchmaking.Lobby.Filter>() {
-				new SteamMatchmaking.Lobby.StringFilter("meta", ELobbyFilterComparison.Equal, "456")
+				new SteamMatchmaking.Lobby.StringFilter("meta", ELobbyComparison.Equal, "456")
 			}, 1);
 
 			Primary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.GetLobbyListCallback c) => {
@@ -212,7 +212,7 @@ namespace SteamKitIntegrationTests
 			Thread.Sleep(750); // Give Steam a bit of time publicly list our lobby
 
 			Secondary.Matchmaking.GetLobbyList(Config.AppId, new List<SteamMatchmaking.Lobby.Filter>() {
-				new SteamMatchmaking.Lobby.NumericalFilter("lookup", ELobbyFilterComparison.Equal, LookupIdentifier),
+				new SteamMatchmaking.Lobby.NumericalFilter("lookup", ELobbyComparison.Equal, LookupIdentifier),
 			}, 1);
 
 			Secondary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.GetLobbyListCallback c) => {
