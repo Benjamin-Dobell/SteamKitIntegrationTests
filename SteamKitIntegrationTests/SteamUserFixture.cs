@@ -28,9 +28,9 @@ namespace SteamKitIntegrationTests
 
 		public SteamFriends Friends { get; }
 		public SteamMatchmaking Matchmaking { get; }
+		public CallbackManager CallbackManager { get; }
 
 		private SteamUser User { get; }
-		private CallbackManager CallbackManager { get; }
 
 		private State state;
 
