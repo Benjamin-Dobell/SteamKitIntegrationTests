@@ -95,6 +95,29 @@ namespace SteamKitIntegrationTests
 			Assert.Equal(Primary.Client.SteamID, updatedLobby.OwnerSteamID);
 			Assert.Equal(1, updatedLobby.MaxMembers);
 			Assert.Equal(1, updatedLobby.NumMembers);
+
+			var leaveLobby = await Primary.Matchmaking.LeaveLobby(Config.AppId, lobbyId);
+
+			Assert.Equal(EResult.OK, leaveLobby.Result);
+
+			Secondary.WaitForCallback(Config.DefaultHandlerTimeout, (SteamMatchmaking.LobbyDataCallback c) => {
+				var destroyedLobby = c.Lobby;
+
+				Assert.Equal(lobbyId, destroyedLobby.SteamID);
+				Assert.Equal(new SteamID(), destroyedLobby.OwnerSteamID);
+			});
+
+			// The following GetLobbyData() is not allowed as the lobby has been deleted. Attempting it will result in the
+			// Steam backend disconnecting us.
+			//
+			//var getDestroyedLobbyData = await Secondary.Matchmaking.GetLobbyData(Config.AppId, listedLobby.SteamID);
+			//
+			// You have to listen for updates, as above. In this situation we knew the lobby was deleted (locally by the primary
+			// user), so we knew to wait for the lobby data callback.
+			//
+			// In practice, we aren't going to know when other users have deleted a lobby and we may attempt to GetLobbyData()
+			// just as the lobby is being deleted (before we've received LobbyDataCallback locally). This is probably an
+			// insurmountable problem based on the current event-driven (multi-threaded) architecture of SteamKit2.
 		}
 	}
 }
